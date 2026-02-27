@@ -25,4 +25,14 @@ class TcpClient {
     String jsonString = jsonEncode(data);
     return await sendMessage(ip, jsonString);
   }
+
+  Future<void> sendBroadcastJsonMessage(
+    List<String> ips,
+    Map<String, dynamic> data,
+  ) async {
+    String jsonString = jsonEncode(data);
+    for (String ip in ips) {
+      sendMessage(ip, jsonString); // Fire and forget for broadcast
+    }
+  }
 }

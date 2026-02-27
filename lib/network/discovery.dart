@@ -19,6 +19,8 @@ class DiscoveryService {
 
   Function(List<Peer>)? onPeersUpdated;
 
+  List<Peer> get onlinePeers => _peers.values.toList();
+
   bool _isBroadcasting = false;
 
   Future<void> start() async {
