@@ -90,9 +90,10 @@ class _ChatViewState extends State<ChatView> {
     ChatStore.addMessage(widget.peer.ip, messageData);
     _scrollToBottom();
 
-    final payload = {'type': 'text', 'text': text};
+    final Map<String, dynamic> payload = {'type': 'text', 'text': text};
 
     if (widget.peer.ip == "BROADCAST") {
+      payload['isBroadcast'] = true;
       payload['groupId'] = "BROADCAST";
       final peers = _discoveryService.onlinePeers;
       await _tcpClient.sendBroadcastJsonMessage(
@@ -100,11 +101,13 @@ class _ChatViewState extends State<ChatView> {
         payload,
       );
     } else if (widget.peer.ip.startsWith("GROUP:")) {
-      payload['groupId'] = widget.peer.ip;
       final groupId = widget.peer.ip.replaceFirst("GROUP:", "");
+      payload['groupId'] = groupId;
       final groups = GroupStore.getAllGroups();
       try {
         final group = groups.firstWhere((g) => g.id == groupId);
+        payload['groupName'] = group.name;
+        payload['peerIps'] = group.peerIps;
         await _tcpClient.sendBroadcastJsonMessage(group.peerIps, payload);
       } catch (e) {
         print("Group not found: $groupId");

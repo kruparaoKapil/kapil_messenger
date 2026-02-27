@@ -131,6 +131,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ? "BROADCAST"
           : (data['groupId'] != null ? "GROUP:${data['groupId']}" : ip);
 
+      // Self-healing Group sync: If we get a group message but don't have the group locally
+      if (data['groupId'] != null &&
+          data['groupId'] != "BROADCAST" &&
+          data['groupName'] != null) {
+        final existingGroups = GroupStore.getAllGroups();
+        if (!existingGroups.any((g) => g.id == data['groupId'])) {
+          await GroupStore.saveGroup(
+            Group(
+              id: data['groupId'],
+              name: data['groupName'],
+              peerIps: List<String>.from(data['peerIps'] ?? []),
+            ),
+          );
+          _loadGroups(); // Refresh sidebar
+        }
+      }
+
       ChatStore.addMessage(chatKey, {
         'text': data['text'] ?? data['filename'] ?? message,
         'type': data['type'] ?? 'text',
