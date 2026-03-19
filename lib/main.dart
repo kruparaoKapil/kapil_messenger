@@ -8,6 +8,7 @@ import 'storage/chat_store.dart';
 import 'storage/group_store.dart';
 import 'network/discovery.dart';
 import 'network/tcp_server.dart';
+import 'network/file_transfer.dart';
 import 'ui/chat_screen.dart'; // This now contains ChatView
 import 'ui/settings_screen.dart';
 
@@ -41,7 +42,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Kapil Messenger',
+      title: 'Lords Church Messenger',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -148,16 +149,33 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         }
       }
 
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
       ChatStore.addMessage(chatKey, {
         'text': data['text'] ?? data['filename'] ?? message,
         'type': data['type'] ?? 'text',
         'isMine': false,
         'senderIp': ip,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'timestamp': timestamp,
         'filename': data['filename'],
         'size': data['size'],
         'port': data['port'],
       });
+
+      if (data['type'] == 'file_offer' && data['port'] != null && data['filename'] != null) {
+        String downloadId = timestamp.toString();
+        FileTransferService.receiveFile(
+          ip,
+          data['port'],
+          data['filename'],
+          data['size'] ?? 0,
+          downloadId,
+        ).then((file) {
+          if (file != null) {
+            ChatStore.updateMessage(chatKey, timestamp, {'savedPath': file.path});
+          }
+        });
+      }
 
       if (mounted) {
         setState(() {
@@ -346,6 +364,35 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           _unreadCounts[peer.ip] = 0;
         });
       },
+      onLongPress: () {
+        if (peer.ip.startsWith("GROUP:")) {
+          final groupId = peer.ip.replaceFirst("GROUP:", "");
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("Delete Group"),
+              content: Text("Are you sure you want to delete ${peer.name}?"),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel"),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await GroupStore.deleteGroup(groupId);
+                    if (_selectedPeer?.ip == peer.ip) {
+                      setState(() => _selectedPeer = null);
+                    }
+                    _loadGroups();
+                  },
+                  child: const Text("Delete", style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -412,14 +459,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         child: Icon(Icons.account_circle, color: Colors.white),
                       ),
                       const SizedBox(width: 12),
-                      Text(
-                        "Kapil Messenger",
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                      Expanded(
+                        child: Text(
+                          "Lords Church Messenger",
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const Spacer(),
                       IconButton(
                         icon: Icon(
                           Icons.settings,
@@ -500,7 +549,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           ),
                           const SizedBox(height: 24),
                           Text(
-                            "Kapil Messenger",
+                            "Lords Church Messenger",
                             style: GoogleFonts.inter(
                               fontSize: 24,
                               color: isDark ? Colors.white70 : Colors.black87,

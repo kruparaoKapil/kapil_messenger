@@ -7,6 +7,7 @@ import '../network/file_transfer.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'package:open_filex/open_filex.dart';
 
 class ChatMessage {
   final String text;
@@ -17,6 +18,7 @@ class ChatMessage {
   final int? size;
   final int? port;
   final String? senderIp;
+  final String? savedPath;
 
   ChatMessage({
     required this.text,
@@ -27,6 +29,7 @@ class ChatMessage {
     this.size,
     this.port,
     this.senderIp,
+    this.savedPath,
   });
 }
 
@@ -152,43 +155,6 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
-  void _downloadFile(ChatMessage msg) async {
-    if (msg.port == null || msg.filename == null) return;
-
-    final timestamp = msg.timestamp.millisecondsSinceEpoch;
-
-    final downloadIp = msg.senderIp ?? widget.peer.ip;
-
-    File? file = await FileTransferService.receiveFile(
-      downloadIp,
-      msg.port!,
-      msg.filename!,
-      msg.size ?? 0,
-      (progress) {
-        if (mounted) {
-          setState(() {
-            _transferProgress[timestamp] = progress;
-          });
-        }
-      },
-    );
-
-    if (mounted) {
-      setState(() {
-        _transferProgress.remove(timestamp);
-      });
-      if (file != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved to Downloads: ${msg.filename}')),
-        );
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Download failed.')));
-      }
-    }
-  }
-
   void _showSharedFiles() {
     final messages = ChatStore.getMessages(widget.peer.ip);
     final files = messages.where((m) => m['type'] == 'file_offer').toList();
@@ -217,23 +183,12 @@ class _ChatViewState extends State<ChatView> {
                           "${((file['size'] ?? 0) / 1024 / 1024).toStringAsFixed(2)} MB",
                         ),
                         trailing: IconButton(
-                          icon: const Icon(Icons.download),
+                          icon: Icon(file['savedPath'] != null ? Icons.folder_open : Icons.download_done),
                           onPressed: () {
                             Navigator.pop(context);
-                            // We need a ChatMessage object for _downloadFile
-                            _downloadFile(
-                              ChatMessage(
-                                text: file['text'] ?? '',
-                                isMine: file['isMine'] == true,
-                                timestamp: DateTime.fromMillisecondsSinceEpoch(
-                                  file['timestamp'] ?? 0,
-                                ),
-                                filename: file['filename'],
-                                size: file['size'],
-                                port: file['port'],
-                                senderIp: file['senderIp'],
-                              ),
-                            );
+                            if (file['savedPath'] != null) {
+                              OpenFilex.open(file['savedPath']);
+                            }
                           },
                         ),
                       );
@@ -432,6 +387,7 @@ class _ChatViewState extends State<ChatView> {
                       size: msgMap['size'],
                       port: msgMap['port'],
                       senderIp: msgMap['senderIp'],
+                      savedPath: msgMap['savedPath'],
                     );
                     return _buildMessageBubble(msg);
                   },
@@ -564,102 +520,145 @@ class _ChatViewState extends State<ChatView> {
   Widget _buildFileMessage(ChatMessage msg) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final timestamp = msg.timestamp.millisecondsSinceEpoch;
-    final isDownloading = _transferProgress.containsKey(timestamp);
+    final downloadId = timestamp.toString();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
+    return ValueListenableBuilder<Map<String, double>>(
+      valueListenable: FileTransferService.globalTransferProgress,
+      builder: (context, progressMap, child) {
+        final isDownloading = progressMap.containsKey(downloadId);
+        final progress = progressMap[downloadId] ?? 0.0;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: msg.isMine
-                    ? Colors.white24
-                    : Colors.blueAccent.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                Icons.insert_drive_file,
-                color: msg.isMine ? Colors.white : Colors.blueAccent,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    msg.filename ?? "Unknown File",
-                    style: TextStyle(
-                      color: msg.isMine ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: msg.isMine
+                        ? Colors.white24
+                        : Colors.blueAccent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  if (msg.size != null)
-                    Text(
-                      "${(msg.size! / 1024 / 1024).toStringAsFixed(2)} MB",
-                      style: TextStyle(
-                        color: msg.isMine
-                            ? Colors.white70
-                            : (isDark ? Colors.white70 : Colors.black54),
-                        fontSize: 11,
+                  child: Icon(
+                    Icons.insert_drive_file,
+                    color: msg.isMine ? Colors.white : Colors.blueAccent,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        msg.filename ?? "Unknown File",
+                        style: TextStyle(
+                          color: msg.isMine ? Colors.white : Colors.black87,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
+                      if (msg.size != null)
+                        Text(
+                          "${(msg.size! / 1024 / 1024).toStringAsFixed(2)} MB",
+                          style: TextStyle(
+                            color: msg.isMine
+                                ? Colors.white70
+                                : (isDark ? Colors.white70 : Colors.black54),
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (isDownloading) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  color: msg.isMine ? Colors.white : Colors.blueAccent,
+                  backgroundColor: msg.isMine
+                      ? Colors.white24
+                      : (isDark ? Colors.white10 : Colors.grey[300]),
+                  minHeight: 6,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "Transferring... ${(progress * 100).toInt()}%",
+                style: TextStyle(
+                  color: msg.isMine
+                      ? Colors.white70
+                      : (isDark ? Colors.white70 : Colors.black54),
+                  fontSize: 10,
+                ),
+              ),
+            ] else if (msg.savedPath != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12.0),
+                child: ElevatedButton.icon(
+                  onPressed: () => OpenFilex.open(msg.savedPath!),
+                  icon: const Icon(Icons.folder_open, size: 16),
+                  label: const Text("Open File"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
                     ),
-                ],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              )
+            else if (!msg.isMine)
+              Padding(
+                padding: const EdgeInsets.only(top: 12.0),
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    if (msg.port != null && msg.filename != null) {
+                      FileTransferService.receiveFile(
+                        msg.senderIp ?? widget.peer.ip,
+                        msg.port!,
+                        msg.filename!,
+                        msg.size ?? 0,
+                        downloadId,
+                      ).then((file) {
+                        if (file != null) {
+                          ChatStore.updateMessage(widget.peer.ip, timestamp, {'savedPath': file.path});
+                        }
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.download, size: 16),
+                  label: const Text("Retry Download"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
               ),
-            ),
           ],
-        ),
-        if (isDownloading) ...[
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: _transferProgress[timestamp],
-              color: msg.isMine ? Colors.white : Colors.blueAccent,
-              backgroundColor: msg.isMine
-                  ? Colors.white24
-                  : (isDark ? Colors.white10 : Colors.grey[300]),
-              minHeight: 6,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            "Transferring... ${(_transferProgress[timestamp]! * 100).toInt()}%",
-            style: TextStyle(
-              color: msg.isMine
-                  ? Colors.white70
-                  : (isDark ? Colors.white70 : Colors.black54),
-              fontSize: 10,
-            ),
-          ),
-        ] else if (!msg.isMine)
-          Padding(
-            padding: const EdgeInsets.only(top: 12.0),
-            child: ElevatedButton.icon(
-              onPressed: () => _downloadFile(msg),
-              icon: const Icon(Icons.download, size: 16),
-              label: const Text("Download"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-      ],
+        );
+      },
     );
   }
 

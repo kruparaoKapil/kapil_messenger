@@ -1,7 +1,12 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 class FileTransferService {
+  /// Global transfer progress map (key: timestamp string)
+  static final ValueNotifier<Map<String, double>> globalTransferProgress =
+      ValueNotifier({});
+
   /// Start hosting a file on a random ephemeral port, and return that port.
   static Future<int> hostFile(File file, Function(double) onProgress) async {
     ServerSocket server = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
@@ -39,7 +44,7 @@ class FileTransferService {
     int port,
     String filename,
     int size,
-    Function(double) onProgress,
+    String downloadId,
   ) async {
     try {
       Directory? dir = await getDownloadsDirectory();
@@ -68,13 +73,19 @@ class FileTransferService {
         sink.add(chunk);
         received += chunk.length;
         if (size > 0) {
-          onProgress(received / size);
+          final progressMap = Map<String, double>.from(globalTransferProgress.value);
+          progressMap[downloadId] = received / size;
+          globalTransferProgress.value = progressMap;
         }
       }
 
       await sink.flush();
       await sink.close();
       await socket.close();
+      
+      final progressMap = Map<String, double>.from(globalTransferProgress.value);
+      progressMap.remove(downloadId);
+      globalTransferProgress.value = progressMap;
 
       return outFile;
     } catch (e) {

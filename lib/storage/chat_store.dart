@@ -29,4 +29,17 @@ class ChatStore {
     msgs.add(msg);
     box.put(peerIp, msgs);
   }
+
+  static void updateMessage(String peerIp, int timestamp, Map<String, dynamic> updates) {
+    List<Map<String, dynamic>> msgs = getMessages(peerIp);
+    for (int i = 0; i < msgs.length; i++) {
+      if (msgs[i]['timestamp'] == timestamp) {
+        var updatedMsg = Map<String, dynamic>.from(msgs[i]);
+        updatedMsg.addAll(updates);
+        msgs[i] = updatedMsg;
+        box.put(peerIp, msgs);
+        break;
+      }
+    }
+  }
 }

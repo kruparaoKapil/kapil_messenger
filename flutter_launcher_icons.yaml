@@ -1,0 +1,10 @@
+flutter_launcher_icons:
+  image_path: "assets/icon.jpg"
+  ios: false
+  android: false
+  macos:
+    generate: true
+    image_path: "assets/icon.jpg"
+  windows:
+    generate: true
+    image_path: "assets/icon.jpg"
