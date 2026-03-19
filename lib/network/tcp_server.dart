@@ -20,7 +20,7 @@ class TcpServer {
   }
 
   void _handleConnection(Socket client) {
-    String clientIp = client.remoteAddress.address;
+    String clientIp = client.remoteAddress.address.replaceFirst('::ffff:', '');
     client.listen(
       (List<int> data) {
         try {

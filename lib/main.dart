@@ -187,6 +187,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
       await windowManager.show();
       await windowManager.focus();
+
+      // Self-healing discovery: If this IP is not in our online list, ping it directly via UDP
+      if (!_peers.any((p) => p.ip == ip)) {
+        await _discovery.pingPeer(ip);
+      }
     };
     await _tcpServer.start();
   }
