@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../network/tcp_client.dart';
 import '../storage/chat_store.dart';
 import '../storage/group_store.dart';
 import '../network/discovery.dart';
 import '../network/file_transfer.dart';
 import '../storage/settings.dart';
+import '../main.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
@@ -55,18 +57,62 @@ class _ChatViewState extends State<ChatView> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  Timer? _typingTimer;
+  bool _isSendingTyping = false;
+
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_onTypingChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   @override
   void dispose() {
+    _typingTimer?.cancel();
+    _controller.removeListener(_onTypingChanged);
     _scrollController.dispose();
     _searchController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Debounced typing indicator: sends a 'typing' signal at most once every 2 seconds.
+  void _onTypingChanged() {
+    if (_controller.text.isNotEmpty && !_isSendingTyping) {
+      _isSendingTyping = true;
+      _sendTypingSignal();
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 2), () {
+        _isSendingTyping = false;
+      });
+    }
+  }
+
+  void _sendTypingSignal() async {
+    final Map<String, dynamic> payload = {
+      'type': 'typing',
+      'senderName': SettingsService.userName,
+    };
+
+    if (widget.peer.ip == "BROADCAST") {
+      payload['isBroadcast'] = true;
+      final peers = _discoveryService.onlinePeers;
+      await _tcpClient.sendBroadcastJsonMessage(
+        peers.map((p) => p.ip).toList(),
+        payload,
+      );
+    } else if (widget.peer.ip.startsWith("GROUP:")) {
+      final groupId = widget.peer.ip.replaceFirst("GROUP:", "");
+      payload['groupId'] = groupId;
+      final groups = GroupStore.getAllGroups();
+      try {
+        final group = groups.firstWhere((g) => g.id == groupId);
+        await _tcpClient.sendBroadcastJsonMessage(group.peerIps, payload);
+      } catch (_) {}
+    } else {
+      await _tcpClient.sendJsonMessage(widget.peer.ip, payload);
+    }
   }
 
   void _scrollToBottom() {
@@ -575,6 +621,26 @@ class _ChatViewState extends State<ChatView> {
             ),
           ),
         ),
+        // Typing Indicator
+        ValueListenableBuilder<Map<String, String>>(
+          valueListenable: MainScreen.typingUsers,
+          builder: (context, typingMap, _) {
+            final typingName = typingMap[widget.peer.ip];
+            if (typingName == null) return const SizedBox.shrink();
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "$typingName is typing...",
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: isDark ? Colors.white54 : Colors.black45,
+                ),
+              ),
+            );
+          },
+        ),
         _buildInputArea(),
       ],
     );
@@ -728,14 +794,16 @@ class _ChatViewState extends State<ChatView> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
+                Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         msg.filename ?? "Unknown File",
                         style: TextStyle(
-                          color: msg.isMine ? Colors.white : Colors.black87,
+                          color: msg.isMine
+                              ? Colors.white
+                              : (isDark ? Colors.white : Colors.black87),
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
                         ),

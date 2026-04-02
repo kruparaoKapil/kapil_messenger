@@ -96,6 +96,9 @@ class MyApp extends StatelessWidget {
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
+  /// Tracks who is typing in which chat. Key = chatKey, Value = sender name.
+  static final ValueNotifier<Map<String, String>> typingUsers = ValueNotifier({});
+
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -169,6 +172,24 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           : (data['groupId'] != null ? "GROUP:${data['groupId']}" : ip);
 
       print("Resolved chatKey: $chatKey");
+
+      // Handle typing indicator (ephemeral — don't store)
+      if (data['type'] == 'typing') {
+        final senderName = data['senderName'] ?? ip;
+        final typingMap = Map<String, String>.from(MainScreen.typingUsers.value);
+        typingMap[chatKey] = senderName;
+        MainScreen.typingUsers.value = typingMap;
+
+        // Auto-clear after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
+          final current = Map<String, String>.from(MainScreen.typingUsers.value);
+          if (current[chatKey] == senderName) {
+            current.remove(chatKey);
+            MainScreen.typingUsers.value = current;
+          }
+        });
+        return; // Don't store typing signals
+      }
 
       // Self-healing Group sync: If we get a group message but don't have the group locally
       if (data['groupId'] != null &&
