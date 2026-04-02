@@ -44,6 +44,8 @@ dependencies:
   path_provider: ^2.1.5
   google_fonts: ^6.2.1
   open_filex: ^4.7.0
+  launch_at_startup: ^0.2.0
+  package_info_plus: ^8.1.1
 
 dev_dependencies:
   flutter_test:
@@ -60,8 +62,8 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 msix_config:
-  display_name: "lords messenger"
-  publisher_display_name: "lords messenger"
+  display_name: "Yod Messenger"
+  publisher_display_name: "Yod Messenger"
   identity_name: "com.lords.messenger"
   msix_version: 1.0.0.0
   logo_path: "assets/icon.jpg"

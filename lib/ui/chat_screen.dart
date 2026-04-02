@@ -4,6 +4,7 @@ import '../storage/chat_store.dart';
 import '../storage/group_store.dart';
 import '../network/discovery.dart';
 import '../network/file_transfer.dart';
+import '../storage/settings.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
@@ -18,6 +19,7 @@ class ChatMessage {
   final int? size;
   final int? port;
   final String? senderIp;
+  final String? senderName;
   final String? savedPath;
 
   ChatMessage({
@@ -29,6 +31,7 @@ class ChatMessage {
     this.size,
     this.port,
     this.senderIp,
+    this.senderName,
     this.savedPath,
   });
 }
@@ -93,11 +96,14 @@ class _ChatViewState extends State<ChatView> {
     ChatStore.addMessage(widget.peer.ip, messageData);
     _scrollToBottom();
 
-    final Map<String, dynamic> payload = {'type': 'text', 'text': text};
+    final Map<String, dynamic> payload = {
+      'type': 'text',
+      'text': text,
+      'senderName': SettingsService.userName,
+    };
 
     if (widget.peer.ip == "BROADCAST") {
       payload['isBroadcast'] = true;
-      payload['groupId'] = "BROADCAST";
       final peers = _discoveryService.onlinePeers;
       await _tcpClient.sendBroadcastJsonMessage(
         peers.map((p) => p.ip).toList(),
@@ -146,12 +152,36 @@ class _ChatViewState extends State<ChatView> {
         'port': port,
       });
 
-      await _tcpClient.sendJsonMessage(widget.peer.ip, {
+      final Map<String, dynamic> payload = {
         'type': 'file_offer',
         'filename': filename,
         'size': size,
         'port': port,
-      });
+        'senderName': SettingsService.userName,
+      };
+
+      if (widget.peer.ip == "BROADCAST") {
+        payload['isBroadcast'] = true;
+        final peers = _discoveryService.onlinePeers;
+        await _tcpClient.sendBroadcastJsonMessage(
+          peers.map((p) => p.ip).toList(),
+          payload,
+        );
+      } else if (widget.peer.ip.startsWith("GROUP:")) {
+        final groupId = widget.peer.ip.replaceFirst("GROUP:", "");
+        payload['groupId'] = groupId;
+        final groups = GroupStore.getAllGroups();
+        try {
+          final group = groups.firstWhere((g) => g.id == groupId);
+          payload['groupName'] = group.name;
+          payload['peerIps'] = group.peerIps;
+          await _tcpClient.sendBroadcastJsonMessage(group.peerIps, payload);
+        } catch (e) {
+          print("Group not found: $groupId");
+        }
+      } else {
+        await _tcpClient.sendJsonMessage(widget.peer.ip, payload);
+      }
     }
   }
 
@@ -205,7 +235,137 @@ class _ChatViewState extends State<ChatView> {
       },
     );
   }
-  // In a real implementation we'd use a global message bus or provider.
+  /// Returns a comma-separated string of member names for the group header.
+  /// Resolves IPs to display names using the discovery service.
+  String _getGroupMemberNames() {
+    if (!widget.peer.ip.startsWith("GROUP:")) return "";
+    final groupId = widget.peer.ip.replaceFirst("GROUP:", "");
+    final groups = GroupStore.getAllGroups();
+    try {
+      final group = groups.firstWhere((g) => g.id == groupId);
+      final onlinePeers = _discoveryService.onlinePeers;
+
+      // Build display names
+      final names = group.peerIps.map((ip) {
+        // Check if this IP belongs to an online peer with a name
+        try {
+          final peer = onlinePeers.firstWhere((p) => p.ip == ip);
+          return peer.name;
+        } catch (_) {
+          return ip; // Fallback to IP if not found
+        }
+      }).toList();
+
+      return names.join(', ');
+    } catch (_) {
+      return "No members";
+    }
+  }
+
+  /// Shows a dialog to view and remove members from the group.
+  void _showManageMembers() {
+    if (!widget.peer.ip.startsWith("GROUP:")) return;
+    final groupId = widget.peer.ip.replaceFirst("GROUP:", "");
+    final groups = GroupStore.getAllGroups();
+    Group group;
+    try {
+      group = groups.firstWhere((g) => g.id == groupId);
+    } catch (_) {
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        // Use a local copy of peerIps so we can update the dialog
+        List<String> memberIps = List<String>.from(group.peerIps);
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final onlinePeers = _discoveryService.onlinePeers;
+
+            return AlertDialog(
+              title: Text("${group.name} — Members (${memberIps.length})"),
+              content: SizedBox(
+                width: 400,
+                height: 300,
+                child: memberIps.isEmpty
+                    ? const Center(child: Text("No members in this group."))
+                    : ListView.builder(
+                        itemCount: memberIps.length,
+                        itemBuilder: (context, index) {
+                          final ip = memberIps[index];
+                          String displayName = ip;
+                          try {
+                            final peer = onlinePeers.firstWhere((p) => p.ip == ip);
+                            displayName = peer.name;
+                          } catch (_) {}
+
+                          return ListTile(
+                            leading: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: Colors.blueAccent.withValues(alpha: 0.1),
+                              child: const Icon(Icons.person, size: 18, color: Colors.blueAccent),
+                            ),
+                            title: Text(
+                              displayName,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                            subtitle: displayName != ip
+                                ? Text(ip, style: const TextStyle(fontSize: 11, color: Colors.grey))
+                                : null,
+                            trailing: IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 20),
+                              onPressed: () async {
+                                // Confirm removal
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text("Remove Member"),
+                                    content: Text("Remove $displayName from ${group.name}?"),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, false),
+                                        child: const Text("Cancel"),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        child: const Text("Remove", style: TextStyle(color: Colors.red)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirm == true) {
+                                  memberIps.removeAt(index);
+                                  // Save updated group
+                                  final updatedGroup = Group(
+                                    id: group.id,
+                                    name: group.name,
+                                    peerIps: memberIps,
+                                  );
+                                  await GroupStore.saveGroup(updatedGroup);
+                                  setDialogState(() {}); // Refresh dialog
+                                  if (mounted) setState(() {}); // Refresh header
+                                }
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -257,13 +417,24 @@ class _ChatViewState extends State<ChatView> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
-                        isGroup ? "Group Chat" : widget.peer.ip,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
+                      if (isGroup && widget.peer.ip.startsWith("GROUP:"))
+                        Text(
+                          _getGroupMemberNames(),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else
+                        Text(
+                          isGroup ? "All Online Users" : widget.peer.ip,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -302,6 +473,8 @@ class _ChatViewState extends State<ChatView> {
                     if (mounted) setState(() {});
                   } else if (value == 'files') {
                     _showSharedFiles();
+                  } else if (value == 'members') {
+                    _showManageMembers();
                   }
                 },
                 itemBuilder: (context) => [
@@ -313,6 +486,11 @@ class _ChatViewState extends State<ChatView> {
                     value: 'files',
                     child: Text('Shared Files'),
                   ),
+                  if (widget.peer.ip.startsWith("GROUP:"))
+                    const PopupMenuItem(
+                      value: 'members',
+                      child: Text('Manage Members'),
+                    ),
                 ],
               ),
             ],
@@ -387,6 +565,7 @@ class _ChatViewState extends State<ChatView> {
                       size: msgMap['size'],
                       port: msgMap['port'],
                       senderIp: msgMap['senderIp'],
+                      senderName: msgMap['senderName'],
                       savedPath: msgMap['savedPath'],
                     );
                     return _buildMessageBubble(msg);
@@ -413,11 +592,11 @@ class _ChatViewState extends State<ChatView> {
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
         children: [
-          if (isGroup && !msg.isMine && msg.senderIp != null)
+          if (isGroup && !msg.isMine && (msg.senderIp != null || msg.senderName != null))
             Padding(
               padding: const EdgeInsets.only(left: 12.0, bottom: 4.0),
               child: Text(
-                msg.senderIp!,
+                "${msg.senderName ?? 'Unknown'} (${msg.senderIp ?? ''})",
                 style: const TextStyle(
                   fontSize: 10,
                   color: Colors.grey,
@@ -479,7 +658,7 @@ class _ChatViewState extends State<ChatView> {
                       if (msg.type == 'file_offer')
                         _buildFileMessage(msg)
                       else
-                        Text(
+                        SelectableText(
                           msg.text,
                           style: TextStyle(
                             color: msg.isMine

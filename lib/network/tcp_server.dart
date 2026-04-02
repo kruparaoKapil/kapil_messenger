@@ -21,22 +21,28 @@ class TcpServer {
 
   void _handleConnection(Socket client) {
     String clientIp = client.remoteAddress.address.replaceFirst('::ffff:', '');
+    // Buffer incoming data — TCP may split a single JSON message across
+    // multiple packets, so we must accumulate until the connection closes.
+    List<int> buffer = [];
+
     client.listen(
       (List<int> data) {
-        try {
-          String message = utf8.decode(data);
-          if (onMessageReceived != null) {
-            onMessageReceived!(clientIp, message);
-          }
-        } catch (e) {
-          print("Error decoding message from $clientIp: $e");
-        }
+        buffer.addAll(data);
       },
       onError: (error) {
         print("Socket error from $clientIp: $error");
         client.close();
       },
       onDone: () {
+        // Connection closed — we now have the complete message
+        try {
+          String message = utf8.decode(buffer);
+          if (message.isNotEmpty && onMessageReceived != null) {
+            onMessageReceived!(clientIp, message);
+          }
+        } catch (e) {
+          print("Error decoding message from $clientIp: $e");
+        }
         client.close();
       },
     );

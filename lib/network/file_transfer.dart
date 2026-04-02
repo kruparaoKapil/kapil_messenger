@@ -8,31 +8,46 @@ class FileTransferService {
       ValueNotifier({});
 
   /// Start hosting a file on a random ephemeral port, and return that port.
-  static Future<int> hostFile(File file, Function(double) onProgress) async {
+  /// For group/broadcast file sharing, multiple peers may connect to download.
+  /// The server stays open for [maxConnections] downloads or [timeout] duration.
+  static Future<int> hostFile(File file, Function(double) onProgress, {int maxConnections = 20}) async {
     ServerSocket server = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
     int port = server.port;
+    int connectionCount = 0;
 
-    // Listen for a single connection
+    // Auto-close the server after 5 minutes to avoid leaking resources
+    Future.delayed(const Duration(minutes: 5), () {
+      try {
+        server.close();
+      } catch (_) {}
+    });
+
     server.listen((Socket client) async {
-      int total = await file.length();
-      int sent = 0;
+      connectionCount++;
+      try {
+        int total = await file.length();
+        int sent = 0;
 
-      file.openRead().listen(
-        (List<int> chunk) {
+        await for (var chunk in file.openRead()) {
           client.add(chunk);
           sent += chunk.length;
           onProgress(sent / total);
-        },
-        onDone: () async {
-          await client.flush();
+        }
+        await client.flush();
+        await client.close();
+      } catch (e) {
+        print("Error serving file to ${client.remoteAddress.address}: $e");
+        try {
           await client.close();
-          await server.close(); // Close server after transferring
-        },
-        onError: (e) {
-          client.close();
-          server.close();
-        },
-      );
+        } catch (_) {}
+      }
+
+      // Close server after max connections are served
+      if (connectionCount >= maxConnections) {
+        try {
+          await server.close();
+        } catch (_) {}
+      }
     });
 
     return port;
@@ -65,7 +80,7 @@ class FileTransferService {
       Socket socket = await Socket.connect(
         ip,
         port,
-        timeout: const Duration(seconds: 5),
+        timeout: const Duration(seconds: 10),
       );
 
       int received = 0;

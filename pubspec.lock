@@ -408,6 +408,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.11.0"
+  launch_at_startup:
+    dependency: "direct main"
+    description:
+      name: launch_at_startup
+      sha256: "93fc5638e088290004fae358bae691486673d469957d461d9dae5b12248593eb"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.2"
   leak_tracker:
     dependency: transitive
     description:
@@ -528,6 +536,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  package_info_plus:
+    dependency: "direct main"
+    description:
+      name: package_info_plus
+      sha256: "16eee997588c60225bda0488b6dcfac69280a6b7a3cf02c741895dd370a02968"
+      url: "https://pub.dev"
+    source: hosted
+    version: "8.3.1"
+  package_info_plus_platform_interface:
+    dependency: transitive
+    description:
+      name: package_info_plus_platform_interface
+      sha256: "202a487f08836a592a6bd4f901ac69b3a8f146af552bbd14407b6b41e1c3f086"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.2.1"
   parse_app_package:
     dependency: transitive
     description:
@@ -893,6 +917,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.15.0"
+  win32_registry:
+    dependency: transitive
+    description:
+      name: win32_registry
+      sha256: "21ec76dfc731550fd3e2ce7a33a9ea90b828fdf19a5c3bcf556fa992cfa99852"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.5"
   window_manager:
     dependency: "direct main"
     description:

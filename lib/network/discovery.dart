@@ -15,6 +15,10 @@ class DiscoveryService {
   RawDatagramSocket? _socket;
   final Map<String, Peer> _peers = {};
 
+  static final DiscoveryService _instance = DiscoveryService._internal();
+  factory DiscoveryService() => _instance;
+  DiscoveryService._internal();
+
   String get myName => SettingsService.userName;
 
   Function(List<Peer>)? onPeersUpdated;
@@ -74,7 +78,7 @@ class DiscoveryService {
   Future<void> _startBroadcasting() async {
     while (_isBroadcasting) {
       if (_socket != null) {
-        _myIps = await _getLocalIps();
+        _myIps = await DiscoveryService.getLocalIps();
         for (String ip in _myIps) {
           Map<String, dynamic> announcement = {
             "type": "announce",
@@ -106,7 +110,7 @@ class DiscoveryService {
   /// Sends a direct discovery request to a specific IP
   Future<void> pingPeer(String ip) async {
     if (_socket == null) return;
-    _myIps = await _getLocalIps();
+    _myIps = await DiscoveryService.getLocalIps();
     String myIp = _myIps.isNotEmpty ? _myIps.first : '';
     
     Map<String, dynamic> announcement = {
@@ -130,7 +134,7 @@ class DiscoveryService {
     );
   }
 
-  Future<List<String>> _getLocalIps() async {
+  static Future<List<String>> getLocalIps() async {
     List<String> ips = [];
     try {
       for (var interface in await NetworkInterface.list()) {

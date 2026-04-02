@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,11 +12,31 @@ import 'network/tcp_server.dart';
 import 'network/file_transfer.dart';
 import 'ui/chat_screen.dart'; // This now contains ChatView
 import 'ui/settings_screen.dart';
+import 'package:launch_at_startup/launch_at_startup.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'dart:io';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await SettingsService.init();
+  try {
+    await Hive.initFlutter();
+    await SettingsService.init();
+    
+    if (SettingsService.isFirstRun) {
+      await SettingsService.clearAllData();
+      try {
+        await Hive.deleteBoxFromDisk(ChatStore.boxName);
+        await Hive.deleteBoxFromDisk(GroupStore.boxName);
+      } catch (e) {
+        print("Error clearing Hive boxes: $e");
+      }
+      await SettingsService.markFirstRunComplete(); // Set version flag AFTER clear
+    }
+  } catch (e) {
+    print("Initialization error: $e");
+  }
+
   await ChatStore.init();
   await GroupStore.init();
 
@@ -33,6 +54,14 @@ void main() async {
     await windowManager.focus();
   });
 
+  // Launch at Startup Initialization
+  PackageInfo packageInfo = await PackageInfo.fromPlatform();
+  launchAtStartup.setup(
+    appName: packageInfo.appName,
+    appPath: Platform.resolvedExecutable,
+  );
+  await launchAtStartup.enable();
+
   runApp(const MyApp());
 }
 
@@ -42,7 +71,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Lords Church Messenger',
+      title: 'Yod Messenger',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -119,18 +148,27 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     await _discovery.start();
 
     _tcpServer.onMessageReceived = (ip, message) async {
-      print("Message from $ip: $message");
+      final myIps = await DiscoveryService.getLocalIps();
+      if (myIps.contains(ip)) return; // Ignore messages from self
+
+      print("=== INCOMING MESSAGE ===");
+      print("From IP: $ip");
+      print("Raw message length: ${message.length}");
 
       Map<String, dynamic> data = {};
       try {
         data = jsonDecode(message);
+        print("Parsed JSON successfully. Type: ${data['type']}, groupId: ${data['groupId']}, isBroadcast: ${data['isBroadcast']}");
       } catch (e) {
+        print("JSON parse error: $e");
         data = {'type': 'text', 'text': message};
       }
 
       final chatKey = data['isBroadcast'] == true
           ? "BROADCAST"
           : (data['groupId'] != null ? "GROUP:${data['groupId']}" : ip);
+
+      print("Resolved chatKey: $chatKey");
 
       // Self-healing Group sync: If we get a group message but don't have the group locally
       if (data['groupId'] != null &&
@@ -156,6 +194,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         'type': data['type'] ?? 'text',
         'isMine': false,
         'senderIp': ip,
+        'senderName': data['senderName'],
         'timestamp': timestamp,
         'filename': data['filename'],
         'size': data['size'],
@@ -178,15 +217,30 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       }
 
       if (mounted) {
+        bool isMinimized = await windowManager.isMinimized();
+        bool shouldNotify = isMinimized || _selectedPeer?.ip != chatKey;
+
+        if (shouldNotify) {
+          SystemSound.play(SystemSoundType.alert);
+        }
+
+        if (isMinimized) {
+          // Auto-navigate to the chat when minimized
+          final targetPeer = _findPeer(chatKey);
+          if (targetPeer != null) {
+            _selectedPeer = targetPeer;
+            _unreadCounts[chatKey] = 0;
+          }
+          await windowManager.show();
+          await windowManager.focus();
+        }
+
         setState(() {
           if (_selectedPeer?.ip != chatKey) {
             _unreadCounts[chatKey] = (_unreadCounts[chatKey] ?? 0) + 1;
           }
         });
       }
-
-      await windowManager.show();
-      await windowManager.focus();
 
       // Self-healing discovery: If this IP is not in our online list, ping it directly via UDP
       if (!_peers.any((p) => p.ip == ip)) {
@@ -253,10 +307,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   onPressed: () async {
                     if (nameController.text.isNotEmpty &&
                         selectedIps.isNotEmpty) {
+                      // Include creator's own IPs so other members can send back
+                      final myIps = await DiscoveryService.getLocalIps();
+                      final allMemberIps = {...selectedIps, ...myIps}.toList();
+
                       final group = Group(
                         id: DateTime.now().millisecondsSinceEpoch.toString(),
                         name: nameController.text,
-                        peerIps: selectedIps,
+                        peerIps: allMemberIps,
                       );
                       await GroupStore.saveGroup(group);
                       _loadGroups();
@@ -401,6 +459,28 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
+  Peer? _findPeer(String key) {
+    if (key == "BROADCAST") {
+      return Peer(ip: "BROADCAST", name: "Broadcast Room", lastSeen: DateTime.now());
+    }
+    if (key.startsWith("GROUP:")) {
+      final groupId = key.replaceFirst("GROUP:", "");
+      try {
+        final g = _groups.firstWhere((element) => element.id == groupId);
+        return Peer(ip: key, name: g.name, lastSeen: DateTime.now());
+      } catch (_) {
+        return null;
+      }
+    }
+    // Search in online peers
+    try {
+      return _peers.firstWhere((p) => p.ip == key);
+    } catch (_) {
+      // Fallback to recent chat peer
+      return Peer(ip: key, name: key, lastSeen: DateTime.now());
+    }
+  }
+
   Widget _buildRecentChats() {
     return ValueListenableBuilder(
       valueListenable: ChatStore.box.listenable(),
@@ -466,7 +546,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          "Lords Church Messenger",
+                          "Yod Messenger",
                           style: GoogleFonts.inter(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -554,7 +634,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           ),
                           const SizedBox(height: 24),
                           Text(
-                            "Lords Church Messenger",
+                            "Yod Messenger",
                             style: GoogleFonts.inter(
                               fontSize: 24,
                               color: isDark ? Colors.white70 : Colors.black87,
