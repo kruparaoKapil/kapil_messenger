@@ -71,7 +71,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Yod Messenger',
+      title: 'Kapil Messenger',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -567,7 +567,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          "Yod Messenger",
+                          "Kapil Messenger",
                           style: GoogleFonts.inter(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -655,7 +655,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           ),
                           const SizedBox(height: 24),
                           Text(
-                            "Yod Messenger",
+                            "Kapil Messenger",
                             style: GoogleFonts.inter(
                               fontSize: 24,
                               color: isDark ? Colors.white70 : Colors.black87,

@@ -1,5 +1,5 @@
 env:
-  APP_NAME: "YodMessenger"
+  APP_NAME: "KapilMessenger"
 
 releases:
   - name: production

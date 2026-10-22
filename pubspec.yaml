@@ -62,11 +62,11 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 msix_config:
-  display_name: "Yod Messenger"
-  publisher_display_name: "Yod Messenger"
+  display_name: "Kapil Messenger"
+  publisher_display_name: "Kapil Messenger"
   identity_name: "com.lords.messenger"
   msix_version: 1.0.0.0
-  logo_path: "assets/icon.jpg"
+  logo_path: "assets/icon.png"
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -108,3 +108,21 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+
+  #for ios: ~/.pub-cache/bin/flutter_distributor package --platform macos --targets dmg
+  #for windows: flutter_distributor package --platform windows --targets exe
+
+# Note: If flutter_distributor isn't found on your Windows machine, run dart pub global activate flutter_distributor first
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  macos:
+    generate: true
+    image_path: "assets/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256

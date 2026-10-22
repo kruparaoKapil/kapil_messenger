@@ -1,0 +1,11 @@
+title: "Kapil Messenger"
+icon-size: 80
+contents:
+  - x: 140
+    y: 250
+    type: "file"
+    path: "Kapil Messenger.app"
+  - x: 415
+    y: 250
+    type: "link"
+    path: "/Applications"
